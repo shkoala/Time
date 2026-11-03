@@ -165,6 +165,14 @@ body:after{width:970px;height:970px;top:-610px;right:-170px;border-color:#b9c5f0
 @media(prefers-reduced-motion:reduce){.new-btn:hover,.reveal-btn:hover{transform:none}}
 @media print{.heading{display:block}h1 span{background:white;color:#1d2d49;border:0;box-shadow:none;transform:none;padding:0}.board,.clock-grid,.answer-bar{border:1px solid #ccc;box-shadow:none;background:white}.clock-grid:before,.clock-grid:after,.clock-stage:before,.clock-stage:after{display:none}.entry-field{background:white}}
 
+
+/* Positive feedback keeps the optional answer field usable before reveal. */
+.entry-field.is-correct,.entry-field.is-correct:focus-within{background:linear-gradient(120deg,#eafce8,#ddf6d1);border-color:#6ca65f;box-shadow:0 0 0 3px #c8e8b966,inset 0 1px 0 #ffffffb2}
+.entry-field.is-correct .answer-input{color:#285a32}
+.entry-field.is-correct>.icon{color:#53864a}
+.entry-field.is-correct .enter-key{background:#438353;color:#fff;border-color:#438353;font-size:16px;font-weight:700}
+.entry-hint.is-correct{color:#347345;font-weight:600}
+
 </style></head><body>
 <svg class="defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
     <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.4-7 10-7 10 7 10 7-3.4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
@@ -215,7 +223,7 @@ body:after{width:970px;height:970px;top:-610px;right:-170px;border-color:#b9c5f0
         </section>
       </div>
       <section class="answer-bar" id="answerBar" aria-label="Your answer and English model answer">
-        <div class="answer-entry"><label class="entry-label" for="studentAnswer">Your answer <span class="optional-tag">OPTIONAL</span></label><div class="entry-field"><svg class="icon" aria-hidden="true"><use href="#i-pencil"/></svg><input id="studentAnswer" class="answer-input" type="text" lang="en" maxlength="180" placeholder="It’s…" autocomplete="off" spellcheck="false" autocapitalize="sentences" aria-describedby="answerEntryHint"><span class="enter-key" aria-hidden="true">↵</span></div><p class="entry-hint" id="answerEntryHint">Typing is optional. Reveal whenever you’re ready.</p></div>
+        <div class="answer-entry"><label class="entry-label" for="studentAnswer">Your answer <span class="optional-tag">OPTIONAL</span></label><div class="entry-field"><svg class="icon" aria-hidden="true"><use href="#i-pencil"/></svg><input id="studentAnswer" class="answer-input" type="text" lang="en" maxlength="180" placeholder="It’s…" autocomplete="off" spellcheck="false" autocapitalize="sentences" aria-describedby="answerEntryHint"><span class="enter-key" aria-hidden="true">↵</span></div><p class="entry-hint" id="answerEntryHint" role="status" aria-live="polite" aria-atomic="true">Typing is optional. Reveal whenever you’re ready.</p></div>
         <div class="answer-reveal"><div class="answer-copy"><div id="answerPrompt"><p class="answer-prompt-text">Ready when you are.</p></div><div id="answerResult" hidden><p class="answer-kicker" id="answerStyleLabel">LET’S SAY IT</p><p class="answer-text" id="answerText" lang="en" aria-live="polite" aria-atomic="true"></p><p class="answer-help" id="speechStatus" role="status" hidden></p></div></div><div class="answer-actions" id="answerActions"><button class="reveal-btn" id="revealButton" aria-expanded="false" aria-controls="answerResult">Reveal &amp; listen<svg class="icon" aria-hidden="true"><use href="#i-sound"/></svg></button><button class="listen-btn" id="listenButton" hidden><svg class="icon" aria-hidden="true"><use href="#i-sound"/></svg><span>Listen again</span></button><button class="hide-answer" id="hideAnswerButton" hidden>Hide answer</button></div></div>
       </section>
     </div>
@@ -294,7 +302,93 @@ body:after{width:970px;height:970px;top:-610px;right:-170px;border-color:#b9c5f0
     })();
 
 </script>
-<script id="time-app">
+<script id="time-answer-check">
+    const TimeAnswer = (() => {
+      const ruSmall=['ноль','один','два','три','четыре','пять','шесть','семь','восемь','девять','десять','одиннадцать','двенадцать','тринадцать','четырнадцать','пятнадцать','шестнадцать','семнадцать','восемнадцать','девятнадцать'];
+      const ruTens=['','','двадцать','тридцать','сорок','пятьдесят'];
+      const ruOrdinal=['','первого','второго','третьего','четвертого','пятого','шестого','седьмого','восьмого','девятого','десятого','одиннадцатого','двенадцатого'];
+      const ruGenitive=['','одной','двух','трех','четырех','пяти','шести','семи','восьми','девяти','десяти','одиннадцати','двенадцати','тринадцати','четырнадцати','пятнадцати','шестнадцати','семнадцати','восемнадцати','девятнадцати','двадцати'];
+      let cachedKey='',cachedAnswers=null;
+      function plural(n,forms){const last=n%10,lastTwo=n%100;return forms[lastTwo>=11&&lastTwo<=14?2:last===1?0:last>=2&&last<=4?1:2];}
+      function ruNumber(n,feminine=false){
+        if(n<20)return feminine&&n===1?'одна':feminine&&n===2?'две':ruSmall[n];
+        return ruTens[Math.floor(n/10)]+(n%10?' '+ruNumber(n%10,feminine):'');
+      }
+      function normalize(value,language){
+        let text=String(value??'').normalize('NFKC').toLowerCase().trim()
+          .replace(/ё/g,'е').replace(/[’‘ʼ`]/g,"'").replace(/[.!?。]+$/g,'').trim()
+          .replace(/[-‐‑–—]/g,' ').replace(/'/g,'').replace(/\s+/g,' ');
+        if(language==='ru')text=text.replace(/^(?:сейчас(?: на часах)?|на часах)\s+/,'');
+        else text=text.replace(/^(?:it is|its|the time is)\s+/,'').replace(/\bo\s+clock\b/g,'oclock');
+        return text;
+      }
+      function acceptedAnswers(value,language){
+        const key=TimeMath.normalize(value)+'/'+language;
+        if(key===cachedKey)return cachedAnswers;
+        const answers=new Set(),add=text=>answers.add(normalize(text,language));
+        const {hour,minute}=TimeMath.split(value),next=hour%12+1;
+        for(const style of ['traditional','digital'])add(TimeLanguage.describe(value,style,language));
+        if(language==='ru'){
+          const hourUnit=plural(hour,['час','часа','часов']);
+          const hours=[ruNumber(hour),String(hour),ruNumber(hour)+' '+hourUnit,String(hour)+' '+hourUnit];
+          if(!minute){
+            for(const h of hours){add(h);add(h+' ровно');add('ровно '+h);}
+            if(hour===1)for(const h of ['час','час ровно','ровно час'])add(h);
+          }else{
+            const minuteUnit=plural(minute,['минута','минуты','минут']);
+            for(const h of hours){
+              for(const m of [ruNumber(minute),ruNumber(minute,true),String(minute)])add(h+' '+m);
+              for(const m of [ruNumber(minute,true),String(minute)])add(h+' '+m+' '+minuteUnit);
+              if(minute<10)add(h+' ноль '+ruNumber(minute));
+            }
+            if(minute<30){
+              for(const m of [ruNumber(minute,true),String(minute)])add(m+' '+minuteUnit+' '+ruOrdinal[next]);
+            }
+            if(minute===15)add('четверть '+ruOrdinal[next]);
+            if(minute===30){add('половина '+ruOrdinal[next]);add('пол'+ruOrdinal[next]);}
+            if(minute>30){
+              const remaining=60-minute;
+              const genitive=remaining<=20?ruGenitive[remaining]:'двадцати '+ruGenitive[remaining%10];
+              const unit=remaining%10===1&&remaining!==11?'минуты':'минут';
+              const nextHours=next===1?['час','один','1']:[ruNumber(next),String(next)];
+              for(const h of nextHours){
+                for(const m of [genitive,String(remaining)]){add('без '+m+' '+h);add('без '+m+' '+unit+' '+h);}
+                if(minute===45)add('без четверти '+h);
+              }
+            }
+          }
+        }else{
+          const hours=[TimeMath.numberWord(hour),String(hour)];
+          if(!minute){for(const h of hours){add(h);add(h+' oclock');}}
+          else{
+            const digitalMinutes=minute<10?['oh '+TimeMath.numberWord(minute),'zero '+TimeMath.numberWord(minute)]:[TimeMath.numberWord(minute),String(minute)];
+            for(const h of hours)for(const m of digitalMinutes)add(h+' '+m);
+            const remaining=minute<=30?minute:60-minute;
+            const targetHours=minute<=30?hours:[TimeMath.numberWord(next),String(next)];
+            const direction=minute<=30?'past':'to';
+            for(const h of targetHours){
+              for(const m of [TimeMath.numberWord(remaining),String(remaining)]){
+                add(m+' '+direction+' '+h);
+                add(m+(remaining===1?' minute ':' minutes ')+direction+' '+h);
+              }
+              if(remaining===15){add('quarter '+direction+' '+h);add('a quarter '+direction+' '+h);}
+              if(minute===30)add('half past '+h);
+            }
+          }
+        }
+        cachedKey=key;cachedAnswers=answers;return answers;
+      }
+      function isCorrect(answer,value,language='en'){
+        const text=normalize(answer,language);
+        if(!text)return false;
+        const numeric=/^(\d{1,2})\s*[:.]\s*(\d{2})$/.exec(text);
+        if(numeric){const {hour,minute}=TimeMath.split(value);return Number(numeric[1])===hour&&Number(numeric[2])===minute;}
+        return acceptedAnswers(value,language).has(text);
+      }
+      return Object.freeze({isCorrect});
+    })();
+  </script>
+  <script id="time-app">
     (() => {
       'use strict';
       const $ = id => document.getElementById(id);
@@ -303,7 +397,7 @@ body:after{width:970px;height:970px;top:-610px;right:-170px;border-color:#b9c5f0
       try { const saved = JSON.parse(localStorage.getItem('time-twins-preferences') || '{}'); if ([1,5].includes(saved.step)) state.step=saved.step; if (['traditional','digital'].includes(saved.style)) state.style=saved.style; if (typeof saved.markers==='boolean') state.markers=saved.markers; if (['en','ru'].includes(saved.uiLang)) state.uiLang=saved.uiLang; } catch {}
       const hoursInput=$('hoursInput'),minutesInput=$('minutesInput'),clock=$('analogClock'),hourHand=$('hourHand'),minuteHand=$('minuteHand');
       let drag=null,activeUtterance=null,speechSerial=0,toastTimer=null;
-      const UI = {"en":{"pageTitle":"Time Twins — Studio Edition","brandNote":"THE SPEAKING STUDIO","community":"ШКОАЛА English teaching community","moreGames":"More games","moreGamesAria":"More games — VK Donut","languageGroup":"Game language","switchEn":"Switch to English","switchRu":"Switch to Russian","openSettings":"Open time settings","settings":"Settings","closeSettings":"Close settings","enterFullscreen":"Enter full screen","exitFullscreen":"Exit full screen","eyebrow":"MAKE A LITTLE TIME FOR ENGLISH","edition":"STUDIO / 02","titleFirst":"What’s","titleAccent":"the time?","intro":"One time. Two ways to see it. Your turn to say it.","newTime":"New time","newTimeAria":"New random time","newTimeTitle":"Choose a new random time","newCaption":"A NEW MOMENT. A NEW CHALLENGE.","alwaysSync":"ALWAYS IN SYNC","analog":"ANALOG","digital":"DIGITAL","inSync":"IN SYNC","analogDescription":"Analog clock. Drag either hand to change the time.","analogTitle":"Interactive analog clock","hourHand":"Hour hand","minuteHand":"Minute hand","hourInput":"Hours, 1 to 12","minuteInput":"Minutes, 0 to 59","hourValue":"{n} {unit}; use arrow keys to change the hour","minuteValue":"{n} {unit}; use arrow keys to change the minute","hideAnalog":"Hide analog clock","showAnalog":"Show analog clock","hideDigital":"Hide digital clock","showDigital":"Show digital clock","clockHidden":"Clock hidden","analogHiddenHint":"Use the other clock to tell the time.","digitalHiddenHint":"Read the hands. What’s the time?","showClock":"Show clock","hoursWord":"Hours","minutesWord":"Minutes","hoursUpper":"HOURS","minutesUpper":"MINUTES","lcdNote":"HOURS · MINUTES","makeMove":"Make a move.","dragHint":"Drag either hand.","digitalHint":"Tap the digits to edit the time.","subtractHour":"Subtract one hour","addHour":"Add one hour","subtractMinutes":"Subtract {n} {unit}","addMinutes":"Add {n} {unit}","answerRegion":"Your answer and English model answer","yourAnswer":"Your answer","optional":"OPTIONAL","entryHint":"Typing is optional. Reveal whenever you’re ready.","ready":"Ready when you are.","reveal":"Reveal & listen","listenAgain":"Listen again","hideAnswer":"Hide answer","traditionalAnswer":"LET’S SAY IT","digitalAnswer":"DIGITAL TIME","footerTip":"Hide a clock. Find the words. Make time to speak.","madeFor":"MADE FOR","curiousMinds":"CURIOUS MINDS","settingsTitle":"Time settings","minuteSteps":"Minute steps","stepsHelp":"For the buttons, hand dragging and new random times.","fiveMinutes":"5 minutes","oneMinute":"1 minute","sayTime":"How to say the time","pastTo":"Past / to","digitalStyle":"Digital time","minuteNumbers":"Show minute numbers around the clock","done":"Done","audioNote":"Audio uses your browser’s English voice. Voice availability depends on your device.","audioUnsupported":"Audio isn’t available in this browser. Read the answer aloud together.","audioVoiceMissing":"Audio isn’t available here. Check that an English voice is installed, then try again.","audioReadInstead":"Audio isn’t available here. You can still read the answer aloud.","fullscreenUnavailable":"Full screen is unavailable in this window.","answerPlaceholder":"It’s…"},"ru":{"pageTitle":"Time Twins — Студия времени","brandNote":"УЧИМСЯ НАЗЫВАТЬ ВРЕМЯ","community":"ШКОАЛА — материалы для уроков английского","moreGames":"Ещё игры","moreGamesAria":"Ещё игры — VK Donut","languageGroup":"Язык игры","switchEn":"Английский язык","switchRu":"Русский язык","openSettings":"Настройки часов","settings":"Настройки","closeSettings":"Закрыть настройки","enterFullscreen":"На весь экран","exitFullscreen":"Выйти из полного экрана","eyebrow":"ВРЕМЯ УЧИТЬСЯ И ИГРАТЬ","edition":"СТУДИЯ / 02","titleFirst":"Который","titleAccent":"час?","intro":"Одно время. Двое часов. Назови его по-русски.","newTime":"Новое время","newTimeAria":"Новое случайное время","newTimeTitle":"Выбрать новое случайное время","newCaption":"НОВОЕ ВРЕМЯ — НОВЫЙ ВЫЗОВ","alwaysSync":"ВСЕГДА СИНХРОННО","analog":"СТРЕЛОЧНЫЕ","digital":"ЭЛЕКТРОННЫЕ","inSync":"СИНХРОННО","analogDescription":"Стрелочные часы. Перетащи любую стрелку, чтобы изменить время.","analogTitle":"Интерактивные стрелочные часы","hourHand":"Часовая стрелка","minuteHand":"Минутная стрелка","hourInput":"Часы, от 1 до 12","minuteInput":"Минуты, от 0 до 59","hourValue":"{n} {unit}; стрелки клавиатуры меняют час","minuteValue":"{n} {unit}; стрелки клавиатуры меняют минуты","hideAnalog":"Скрыть стрелочные часы","showAnalog":"Показать стрелочные часы","hideDigital":"Скрыть электронные часы","showDigital":"Показать электронные часы","clockHidden":"Часы скрыты","analogHiddenHint":"Назови время по другим часам.","digitalHiddenHint":"Посмотри на стрелки. Который час?","showClock":"Показать часы","hoursWord":"Часы","minutesWord":"Минуты","hoursUpper":"ЧАСЫ","minutesUpper":"МИНУТЫ","lcdNote":"ЧАСЫ · МИНУТЫ","makeMove":"Попробуй!","dragHint":"Перетащи любую стрелку.","digitalHint":"Нажми на цифры и измени время.","subtractHour":"На час назад","addHour":"На час вперёд","subtractMinutes":"Вычесть {n} {unit}","addMinutes":"Прибавить {n} {unit}","answerRegion":"Твой ответ и правильное время","yourAnswer":"Твой ответ","optional":"НЕОБЯЗАТЕЛЬНО","entryHint":"Можно не писать — ответ всё равно откроется.","ready":"Можешь открыть ответ.","reveal":"Ответ и озвучка","listenAgain":"Ещё раз","hideAnswer":"Скрыть ответ","traditionalAnswer":"НАЗЫВАЕМ ВРЕМЯ","digitalAnswer":"ЧАСЫ И МИНУТЫ","footerTip":"Спрячь часы. Подбери слова. Назови время.","madeFor":"ДЛЯ","curiousMinds":"ЛЮБОЗНАТЕЛЬНЫХ","settingsTitle":"Настройки часов","minuteSteps":"Шаг минут","stepsHelp":"Для кнопок, перетаскивания и случайного времени.","fiveMinutes":"5 минут","oneMinute":"1 минута","sayTime":"Как называть время","pastTo":"Разговорно","digitalStyle":"Часы и минуты","minuteNumbers":"Показывать минуты вокруг циферблата","done":"Готово","audioNote":"Озвучка использует русский голос браузера. Доступность зависит от устройства.","audioUnsupported":"В этом браузере нет озвучки. Прочитайте ответ вслух вместе.","audioVoiceMissing":"Звук недоступен. Проверьте, установлен ли на устройстве русский голос.","audioReadInstead":"Звук недоступен. Можно прочитать ответ вслух.","fullscreenUnavailable":"Полноэкранный режим недоступен в этом окне.","answerPlaceholder":"Сейчас…"}};
+      const UI = {"en":{"pageTitle":"Time Twins — Studio Edition","brandNote":"THE SPEAKING STUDIO","community":"ШКОАЛА English teaching community","moreGames":"More games","moreGamesAria":"More games — VK Donut","languageGroup":"Game language","switchEn":"Switch to English","switchRu":"Switch to Russian","openSettings":"Open time settings","settings":"Settings","closeSettings":"Close settings","enterFullscreen":"Enter full screen","exitFullscreen":"Exit full screen","eyebrow":"MAKE A LITTLE TIME FOR ENGLISH","edition":"STUDIO / 02","titleFirst":"What’s","titleAccent":"the time?","intro":"One time. Two ways to see it. Your turn to say it.","newTime":"New time","newTimeAria":"New random time","newTimeTitle":"Choose a new random time","newCaption":"A NEW MOMENT. A NEW CHALLENGE.","alwaysSync":"ALWAYS IN SYNC","analog":"ANALOG","digital":"DIGITAL","inSync":"IN SYNC","analogDescription":"Analog clock. Drag either hand to change the time.","analogTitle":"Interactive analog clock","hourHand":"Hour hand","minuteHand":"Minute hand","hourInput":"Hours, 1 to 12","minuteInput":"Minutes, 0 to 59","hourValue":"{n} {unit}; use arrow keys to change the hour","minuteValue":"{n} {unit}; use arrow keys to change the minute","hideAnalog":"Hide analog clock","showAnalog":"Show analog clock","hideDigital":"Hide digital clock","showDigital":"Show digital clock","clockHidden":"Clock hidden","analogHiddenHint":"Use the other clock to tell the time.","digitalHiddenHint":"Read the hands. What’s the time?","showClock":"Show clock","hoursWord":"Hours","minutesWord":"Minutes","hoursUpper":"HOURS","minutesUpper":"MINUTES","lcdNote":"HOURS · MINUTES","makeMove":"Make a move.","dragHint":"Drag either hand.","digitalHint":"Tap the digits to edit the time.","subtractHour":"Subtract one hour","addHour":"Add one hour","subtractMinutes":"Subtract {n} {unit}","addMinutes":"Add {n} {unit}","answerRegion":"Your answer and English model answer","yourAnswer":"Your answer","optional":"OPTIONAL","entryHint":"Typing is optional. Reveal whenever you’re ready.","ready":"Ready when you are.","reveal":"Reveal & listen","listenAgain":"Listen again","hideAnswer":"Hide answer","traditionalAnswer":"LET’S SAY IT","digitalAnswer":"DIGITAL TIME","footerTip":"Hide a clock. Find the words. Make time to speak.","madeFor":"MADE FOR","curiousMinds":"CURIOUS MINDS","settingsTitle":"Time settings","minuteSteps":"Minute steps","stepsHelp":"For the buttons, hand dragging and new random times.","fiveMinutes":"5 minutes","oneMinute":"1 minute","sayTime":"How to say the time","pastTo":"Past / to","digitalStyle":"Digital time","minuteNumbers":"Show minute numbers around the clock","done":"Done","audioNote":"Audio uses your browser’s English voice. Voice availability depends on your device.","audioUnsupported":"Audio isn’t available in this browser. Read the answer aloud together.","audioVoiceMissing":"Audio isn’t available here. Check that an English voice is installed, then try again.","audioReadInstead":"Audio isn’t available here. You can still read the answer aloud.","fullscreenUnavailable":"Full screen is unavailable in this window.","answerPlaceholder":"It’s…","answerCorrect":"Correct!"},"ru":{"pageTitle":"Time Twins — Студия времени","brandNote":"УЧИМСЯ НАЗЫВАТЬ ВРЕМЯ","community":"ШКОАЛА — материалы для уроков английского","moreGames":"Ещё игры","moreGamesAria":"Ещё игры — VK Donut","languageGroup":"Язык игры","switchEn":"Английский язык","switchRu":"Русский язык","openSettings":"Настройки часов","settings":"Настройки","closeSettings":"Закрыть настройки","enterFullscreen":"На весь экран","exitFullscreen":"Выйти из полного экрана","eyebrow":"ВРЕМЯ УЧИТЬСЯ И ИГРАТЬ","edition":"СТУДИЯ / 02","titleFirst":"Который","titleAccent":"час?","intro":"Одно время. Двое часов. Назови его по-русски.","newTime":"Новое время","newTimeAria":"Новое случайное время","newTimeTitle":"Выбрать новое случайное время","newCaption":"НОВОЕ ВРЕМЯ — НОВЫЙ ВЫЗОВ","alwaysSync":"ВСЕГДА СИНХРОННО","analog":"СТРЕЛОЧНЫЕ","digital":"ЭЛЕКТРОННЫЕ","inSync":"СИНХРОННО","analogDescription":"Стрелочные часы. Перетащи любую стрелку, чтобы изменить время.","analogTitle":"Интерактивные стрелочные часы","hourHand":"Часовая стрелка","minuteHand":"Минутная стрелка","hourInput":"Часы, от 1 до 12","minuteInput":"Минуты, от 0 до 59","hourValue":"{n} {unit}; стрелки клавиатуры меняют час","minuteValue":"{n} {unit}; стрелки клавиатуры меняют минуты","hideAnalog":"Скрыть стрелочные часы","showAnalog":"Показать стрелочные часы","hideDigital":"Скрыть электронные часы","showDigital":"Показать электронные часы","clockHidden":"Часы скрыты","analogHiddenHint":"Назови время по другим часам.","digitalHiddenHint":"Посмотри на стрелки. Который час?","showClock":"Показать часы","hoursWord":"Часы","minutesWord":"Минуты","hoursUpper":"ЧАСЫ","minutesUpper":"МИНУТЫ","lcdNote":"ЧАСЫ · МИНУТЫ","makeMove":"Попробуй!","dragHint":"Перетащи любую стрелку.","digitalHint":"Нажми на цифры и измени время.","subtractHour":"На час назад","addHour":"На час вперёд","subtractMinutes":"Вычесть {n} {unit}","addMinutes":"Прибавить {n} {unit}","answerRegion":"Твой ответ и правильное время","yourAnswer":"Твой ответ","optional":"НЕОБЯЗАТЕЛЬНО","entryHint":"Можно не писать — ответ всё равно откроется.","ready":"Можешь открыть ответ.","reveal":"Ответ и озвучка","listenAgain":"Ещё раз","hideAnswer":"Скрыть ответ","traditionalAnswer":"НАЗЫВАЕМ ВРЕМЯ","digitalAnswer":"ЧАСЫ И МИНУТЫ","footerTip":"Спрячь часы. Подбери слова. Назови время.","madeFor":"ДЛЯ","curiousMinds":"ЛЮБОЗНАТЕЛЬНЫХ","settingsTitle":"Настройки часов","minuteSteps":"Шаг минут","stepsHelp":"Для кнопок, перетаскивания и случайного времени.","fiveMinutes":"5 минут","oneMinute":"1 минута","sayTime":"Как называть время","pastTo":"Разговорно","digitalStyle":"Часы и минуты","minuteNumbers":"Показывать минуты вокруг циферблата","done":"Готово","audioNote":"Озвучка использует русский голос браузера. Доступность зависит от устройства.","audioUnsupported":"В этом браузере нет озвучки. Прочитайте ответ вслух вместе.","audioVoiceMissing":"Звук недоступен. Проверьте, установлен ли на устройстве русский голос.","audioReadInstead":"Звук недоступен. Можно прочитать ответ вслух.","fullscreenUnavailable":"Полноэкранный режим недоступен в этом окне.","answerPlaceholder":"Сейчас…","answerCorrect":"Верно!"}};
       const localeTextBindings=[];
       const localeAttributeBindings=[
         ['.logo-link','aria-label','community'],['.more-games','aria-label','moreGamesAria'],
@@ -393,6 +487,15 @@ body:after{width:970px;height:970px;top:-610px;right:-170px;border-color:#b9c5f0
       }
       function savePreferences() { try {localStorage.setItem('time-twins-preferences',JSON.stringify({step:state.step,style:state.style,markers:state.markers,uiLang:state.uiLang}));} catch {} }
       function stopSpeech() { speechSerial++; if ('speechSynthesis' in window) window.speechSynthesis.cancel(); activeUtterance=null; $('listenButton').classList.remove('speaking'); }
+      function updateStudentFeedback() {
+        const input=$('studentAnswer'),hint=$('answerEntryHint');
+        const correct=TimeAnswer.isCorrect(input.value,state.total,state.uiLang);
+        input.closest('.entry-field').classList.toggle('is-correct',correct);
+        hint.classList.toggle('is-correct',correct);
+        const message=t(correct?'answerCorrect':'entryHint');
+        if(hint.textContent!==message)hint.textContent=message;
+        input.parentElement.querySelector('.enter-key').textContent=correct?'✓':'↵';
+      }
       function render() {
         const {hour,minute}=TimeMath.split(state.total);
         renderDigits($('hourSegments'),String(hour).padStart(2,' '));
@@ -410,6 +513,7 @@ body:after{width:970px;height:970px;top:-610px;right:-170px;border-color:#b9c5f0
         document.querySelector(`input[name="step"][value="${state.step}"]`).checked=true;
         document.querySelector(`input[name="style"][value="${state.style}"]`).checked=true;
         $('minuteNumbersSetting').checked=state.markers;
+        updateStudentFeedback();
       }
       function hideAnswer({focus=false}={}) {
         state.revealed=false; stopSpeech();
@@ -464,6 +568,8 @@ body:after{width:970px;height:970px;top:-610px;right:-170px;border-color:#b9c5f0
       $('revealButton').addEventListener('click',revealAnswer);
       $('listenButton').addEventListener('click',speakAnswer);
       $('hideAnswerButton').addEventListener('click',()=>hideAnswer({focus:true}));
+      $('studentAnswer').addEventListener('input',updateStudentFeedback);
+      $('studentAnswer').addEventListener('compositionend',updateStudentFeedback);
       $('studentAnswer').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.isComposing){event.preventDefault();revealAnswer();}});
       function bindTimeInput(input,kind) {
         input.addEventListener('focus',()=>input.select());
