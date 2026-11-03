@@ -393,7 +393,7 @@ body:after{width:970px;height:970px;top:-610px;right:-170px;border-color:#b9c5f0
       'use strict';
       const $ = id => document.getElementById(id);
       const svgNS = 'http://www.w3.org/2000/svg';
-      const state = {total:9*60+45,step:5,style:'traditional',markers:true,uiLang:'en',revealed:false,hidden:{analog:false,digital:false}};
+      const state = {total:9*60+45,step:5,style:'traditional',markers:true,uiLang:'en',revealed:false,checkedAnswer:null,hidden:{analog:false,digital:false}};
       try { const saved = JSON.parse(localStorage.getItem('time-twins-preferences') || '{}'); if ([1,5].includes(saved.step)) state.step=saved.step; if (['traditional','digital'].includes(saved.style)) state.style=saved.style; if (typeof saved.markers==='boolean') state.markers=saved.markers; if (['en','ru'].includes(saved.uiLang)) state.uiLang=saved.uiLang; } catch {}
       const hoursInput=$('hoursInput'),minutesInput=$('minutesInput'),clock=$('analogClock'),hourHand=$('hourHand'),minuteHand=$('minuteHand');
       let drag=null,activeUtterance=null,speechSerial=0,toastTimer=null;
@@ -458,7 +458,9 @@ body:after{width:970px;height:970px;top:-610px;right:-170px;border-color:#b9c5f0
         document.querySelectorAll('[data-ui-lang]').forEach(button=>button.addEventListener('click',()=>{
           const next=button.dataset.uiLang;
           if(!['en','ru'].includes(next)||next===state.uiLang)return;
-          state.uiLang=next;savePreferences();applyLocale();
+          state.uiLang=next;
+          if(state.checkedAnswer){state.checkedAnswer=null;hideAnswer();}
+          savePreferences();applyLocale();
           if(state.revealed)speakAnswer();else stopSpeech();
         }));
         applyLocale();
@@ -489,7 +491,8 @@ body:after{width:970px;height:970px;top:-610px;right:-170px;border-color:#b9c5f0
       function stopSpeech() { speechSerial++; if ('speechSynthesis' in window) window.speechSynthesis.cancel(); activeUtterance=null; $('listenButton').classList.remove('speaking'); }
       function updateStudentFeedback() {
         const input=$('studentAnswer'),hint=$('answerEntryHint');
-        const correct=TimeAnswer.isCorrect(input.value,state.total,state.uiLang);
+        const checked=state.checkedAnswer;
+        const correct=Boolean(checked&&checked.correct&&checked.text===input.value&&checked.total===state.total&&checked.language===state.uiLang);
         input.closest('.entry-field').classList.toggle('is-correct',correct);
         hint.classList.toggle('is-correct',correct);
         const message=t(correct?'answerCorrect':'entryHint');
@@ -524,7 +527,7 @@ body:after{width:970px;height:970px;top:-610px;right:-170px;border-color:#b9c5f0
         $('answerActions').classList.remove('revealed'); $('answerBar').classList.remove('is-revealed');
         if(focus) $('revealButton').focus({preventScroll:true});
       }
-      function setTime(total) { const normalized=TimeMath.normalize(total); if(normalized===state.total) return; state.total=normalized; $('studentAnswer').value=''; hideAnswer(); render(); }
+      function setTime(total) { const normalized=TimeMath.normalize(total); if(normalized===state.total) return; state.total=normalized; state.checkedAnswer=null; $('studentAnswer').value=''; hideAnswer(); render(); }
       function notify(key) { clearTimeout(toastTimer); $('toast').dataset.messageKey=key; $('toast').textContent=t(key); $('toast').hidden=false; toastTimer=setTimeout(()=>$('toast').hidden=true,3500); }
       function showSpeechStatus(key) { $('speechStatus').dataset.messageKey=key; $('speechStatus').textContent=t(key); $('speechStatus').hidden=false; }
       function speakAnswer() {
@@ -544,6 +547,9 @@ body:after{width:970px;height:970px;top:-610px;right:-170px;border-color:#b9c5f0
         try {window.speechSynthesis.resume(); window.speechSynthesis.speak(utterance);} catch {showSpeechStatus('audioReadInstead');}
       }
       function revealAnswer() {
+        const input=$('studentAnswer');
+        state.checkedAnswer=input.value.trim()?{text:input.value,total:state.total,language:state.uiLang,correct:TimeAnswer.isCorrect(input.value,state.total,state.uiLang)}:null;
+        updateStudentFeedback();
         state.revealed=true; $('answerPrompt').hidden=true; $('answerResult').hidden=false;
         $('answerText').textContent=describeTime();
         updateAnswerStyleLabel();
@@ -568,8 +574,13 @@ body:after{width:970px;height:970px;top:-610px;right:-170px;border-color:#b9c5f0
       $('revealButton').addEventListener('click',revealAnswer);
       $('listenButton').addEventListener('click',speakAnswer);
       $('hideAnswerButton').addEventListener('click',()=>hideAnswer({focus:true}));
-      $('studentAnswer').addEventListener('input',updateStudentFeedback);
-      $('studentAnswer').addEventListener('compositionend',updateStudentFeedback);
+      function studentAnswerEdited() {
+        state.checkedAnswer=null;
+        if(state.revealed)hideAnswer();
+        updateStudentFeedback();
+      }
+      $('studentAnswer').addEventListener('input',studentAnswerEdited);
+      $('studentAnswer').addEventListener('compositionend',studentAnswerEdited);
       $('studentAnswer').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.isComposing){event.preventDefault();revealAnswer();}});
       function bindTimeInput(input,kind) {
         input.addEventListener('focus',()=>input.select());
